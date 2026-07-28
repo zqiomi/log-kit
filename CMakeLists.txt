@@ -24,8 +24,6 @@ set(LOG_KIT_DEFAULT_SOCKET_PATH "/tmp/log_kit.sock" CACHE STRING "默认 Socket 
 include(GNUInstallDirs)
 
 # 头文件路径
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # ===== 版本头文件 =====
@@ -54,8 +52,14 @@ if(BUILD_SHARED_LIBS)
         VERSION ${PROJECT_VERSION}
         SOVERSION ${PROJECT_VERSION_MAJOR}
     )
+    target_include_directories(log_kit_shared
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
     if(LOG_KIT_ENABLE_SOCKET)
-        target_link_libraries(log_kit_shared Threads::Threads)
+        target_link_libraries(log_kit_shared PUBLIC Threads::Threads)
     endif()
     install(TARGETS log_kit_shared
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -70,8 +74,14 @@ if(BUILD_STATIC_LIBS)
         OUTPUT_NAME log_kit
         POSITION_INDEPENDENT_CODE ON
     )
+    target_include_directories(log_kit_static
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
     if(LOG_KIT_ENABLE_SOCKET)
-        target_link_libraries(log_kit_static Threads::Threads)
+        target_link_libraries(log_kit_static PUBLIC Threads::Threads)
     endif()
     install(TARGETS log_kit_static
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -96,9 +106,9 @@ if(BUILD_DEMO)
     # 主 demo：展示日志功能 + Socket 实时控制
     add_executable(log_kit_demo demo/main.cc)
     if(BUILD_SHARED_LIBS)
-        target_link_libraries(log_kit_demo log_kit_shared)
+        target_link_libraries(log_kit_demo PRIVATE log_kit_shared)
     else()
-        target_link_libraries(log_kit_demo log_kit_static)
+        target_link_libraries(log_kit_demo PRIVATE log_kit_static)
     endif()
     install(TARGETS log_kit_demo
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -106,6 +116,11 @@ if(BUILD_DEMO)
 
     # log_tool：运行时日志级别配置工具
     add_executable(log_tool src/log_tool.cc)
+    if(BUILD_SHARED_LIBS)
+        target_link_libraries(log_tool PRIVATE log_kit_shared)
+    else()
+        target_link_libraries(log_tool PRIVATE log_kit_static)
+    endif()
     install(TARGETS log_tool
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
