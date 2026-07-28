@@ -1,0 +1,21 @@
+/**
+ * @file version.h
+ * @brief log_kit 版本信息（由 CMake 自动生成，请勿手动修改）
+ */
+
+#ifndef LOG_KIT_VERSION_H_
+#define LOG_KIT_VERSION_H_
+
+/** @brief 主版本号 */
+#define LOG_KIT_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+
+/** @brief 次版本号 */
+#define LOG_KIT_VERSION_MINOR @PROJECT_VERSION_MINOR@
+
+/** @brief 补丁版本号 */
+#define LOG_KIT_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+/** @brief 完整版本字符串 */
+#define LOG_KIT_VERSION_STRING "@PROJECT_VERSION@"
+
+#endif  // LOG_KIT_VERSION_H_

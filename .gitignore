@@ -1,0 +1,56 @@
+# Build directories
+build/
+dist/
+out/
+target/
+
+# IDE specific files
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Compiler generated files
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.pyc
+*.pyo
+*.class
+
+# Debug and profiling
+*.dSYM/
+*.pdb
+*.prof
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.manifest
+install_manifest.txt
+Makefile
+
+# Generated files
+compile_commands.json
+demo/.cache
+off
+.qoder/
+*.cache
