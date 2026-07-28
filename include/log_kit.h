@@ -11,18 +11,18 @@
  *
  * @note 使用方式：
  * 1. 在模块初始化时调用 LogRegister() 注册模块，保存返回的模块 ID（从 1 开始）
- * 2. 使用 LOG_INFO / LOG_WARN 等宏打印日志
+ * 2. 使用 _LOG_INFO / _LOG_WARN 等宏打印日志
  * 3. 外部可通过 LogSetLevel() 动态调整日志级别
  * 4. 调用 LogStartSocket() 启动 Socket 服务器，通过 log_tool 远程控制
  *
  * @code
- * // 模块初始化
- * static const int kModuleId = log_kit::LogRegister("my-module");
- *
- * // 打印日志
- * LOG_INFO(kModuleId, "packet sent, seq=%u", seq);
- * LOG_ERROR(kModuleId, "failed to bind port %d", port);
- * @endcode
+* // 模块初始化
+* static const int kModuleId = log_kit::LogRegister("my-module");
+*
+* // 打印日志
+* _LOG_INFO(kModuleId, "packet sent, seq=%u", seq);
+* _LOG_ERROR(kModuleId, "failed to bind port %d", port);
+* @endcode
  */
 
 #ifndef LOG_KIT_H_
@@ -152,29 +152,30 @@ void LogStopSocket();
 
 // ===== 日志宏 =====
 // 使用完全限定名，确保在任意命名空间中可用
+// 宏带 _ 前缀，避免与业务代码中的 LOG_* 宏冲突
 
 /** @brief TRACE 级别日志宏 */
-#define LOG_TRACE(module_id, fmt, ...) \
+#define _LOG_TRACE(module_id, fmt, ...) \
     ::log_kit::LogWrite(module_id, ::log_kit::LogLevel::kTrace, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 
 /** @brief DEBUG 级别日志宏 */
-#define LOG_DEBUG(module_id, fmt, ...) \
+#define _LOG_DEBUG(module_id, fmt, ...) \
     ::log_kit::LogWrite(module_id, ::log_kit::LogLevel::kDebug, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 
 /** @brief INFO 级别日志宏 */
-#define LOG_INFO(module_id, fmt, ...) \
+#define _LOG_INFO(module_id, fmt, ...) \
     ::log_kit::LogWrite(module_id, ::log_kit::LogLevel::kInfo, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 
 /** @brief WARN 级别日志宏 */
-#define LOG_WARN(module_id, fmt, ...) \
+#define _LOG_WARN(module_id, fmt, ...) \
     ::log_kit::LogWrite(module_id, ::log_kit::LogLevel::kWarn, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 
 /** @brief ERROR 级别日志宏 */
-#define LOG_ERROR(module_id, fmt, ...) \
+#define _LOG_ERROR(module_id, fmt, ...) \
     ::log_kit::LogWrite(module_id, ::log_kit::LogLevel::kError, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 
 /** @brief FATAL 级别日志宏 */
-#define LOG_FATAL(module_id, fmt, ...) \
+#define _LOG_FATAL(module_id, fmt, ...) \
     ::log_kit::LogWrite(module_id, ::log_kit::LogLevel::kFatal, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 
 #endif  // LOG_KIT_H_

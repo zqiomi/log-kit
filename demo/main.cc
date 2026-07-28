@@ -97,13 +97,13 @@ int main(int argc, char* argv[])
     int counter = 0;
     while (g_running)
     {
-        LOG_DEBUG(g_module_ids[0], "demo 心跳, count=%d", counter);
-        LOG_INFO(g_module_ids[1], "network 数据包已处理, seq=%u", (unsigned)(counter * 10));
-        LOG_WARN(g_module_ids[2], "codec 缓冲区使用率: %d%%", 50 + (counter % 50));
+        _LOG_DEBUG(g_module_ids[0], "demo 心跳, count=%d", counter);
+        _LOG_INFO(g_module_ids[1], "network 数据包已处理, seq=%u", (unsigned)(counter * 10));
+        _LOG_WARN(g_module_ids[2], "codec 缓冲区使用率: %d%%", 50 + (counter % 50));
 
         if (counter % 10 == 0 && counter > 0)
         {
-            LOG_ERROR(g_module_ids[0], "模拟错误 count=%d", counter);
+            _LOG_ERROR(g_module_ids[0], "模拟错误 count=%d", counter);
         }
 
         counter++;
