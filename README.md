@@ -8,14 +8,16 @@
 
 ## ✨ 特性
 
-- **模块注册机制** — 每个模块独立控制日志级别
-- **模块 ID 自增** — 从 1 开始，ID 0 保留为批量操作所有模块
+- **Logger 类封装** — 模块注册后获得 Logger 对象，封装身份（ID、名称）和操作
+- **模块独立级别** — 每个 Logger 独立控制日志级别
+- **按名查找** — `LogFindModule(name)` 可通过名称找回已注册模块
 - **输出重定向** — 每个模块可独立重定向到文件
 - **线程安全** — 基于 `pthread_mutex` 和 `localtime_r` 实现
 - **Socket 远程控制** — 运行时通过 Unix Domain Socket 调整日志级别
 - **log_tool 工具** — 命令行配置工具，无需重新编译即可调整日志级别
 - **RAII 守卫** — `LockGuard`/`FdGuard` 管理锁和文件描述符生命周期
 - **协议分离** — 命令协议独立为 `log_cmd.h`，客户端和服务端共享
+- **宏带 _ 前缀** — `_LOG_*` 宏避免与业务代码冲突
 
 ## 📦 目录结构
 
@@ -91,19 +93,21 @@ cmake .. -DLOG_KIT_ENABLE_SOCKET=OFF
 ```cpp
 #include "log_kit.h"
 
-// 1. 注册模块（在初始化时调用一次）
-static const int kModuleId = log_kit::LogRegister("my-module");
+// 1. 注册模块，获得 Logger 对象（自动去重，多次注册返回同一 Logger）
+log_kit::Logger net = log_kit::LogRegister("network");
+log_kit::Logger codec = log_kit::LogRegister("codec");
 
 // 2. 设置日志级别（可选，默认为 kInfo）
-log_kit::LogSetLevel(kModuleId, log_kit::LogLevel::kDebug);
+net.SetLevel(log_kit::LogLevel::kDebug);
+codec.SetLevel(log_kit::LogLevel::kWarn);
 
-// 3. 打印日志
-LOG_TRACE(kModuleId, "详细跟踪信息");
-LOG_DEBUG(kModuleId, "调试信息, count=%d", count);
-LOG_INFO(kModuleId, "一般信息: %s", msg);
-LOG_WARN(kModuleId, "警告信息");
-LOG_ERROR(kModuleId, "错误: %s", err);
-LOG_FATAL(kModuleId, "致命错误");
+// 3. 打印日志（传入 Logger 对象）
+_LOG_TRACE(net, "详细跟踪信息");
+_LOG_DEBUG(net, "调试信息, count=%d", count);
+_LOG_INFO(net, "一般信息: %s", msg);
+_LOG_WARN(codec, "警告信息");
+_LOG_ERROR(codec, "错误: %s", err);
+_LOG_FATAL(net, "致命错误");
 ```
 
 ### 日志级别
@@ -121,19 +125,42 @@ LOG_FATAL(kModuleId, "致命错误");
 
 ```cpp
 // 将模块输出重定向到文件
-log_kit::LogSetOutputFile(kModuleId, "/var/log/my-app.log");
+net.SetOutputFile("/var/log/my-app.log");
 
 // 恢复输出到 stderr
-log_kit::LogSetOutputFile(kModuleId, nullptr);
-// 或
-log_kit::LogResetOutput(kModuleId);
+net.ResetOutput();
 ```
 
-### 批量操作
+### 按名查找
 
 ```cpp
-// 模块 ID 为 0 时，操作所有模块
-log_kit::LogSetLevel(0, log_kit::LogLevel::kWarn);  // 所有模块设为 WARN
+// 从其他位置找回已注册的模块
+log_kit::Logger net = log_kit::LogFindModule("network");
+if (net.IsValid()) {
+    net.SetLevel(log_kit::LogLevel::kTrace);
+}
+```
+
+### 适配器模式
+
+在子库中使用时，推荐创建适配器头文件自动注册：
+
+```cpp
+// mylib/src/util/log.h
+#ifndef MYLIB_LOG_H_
+#define MYLIB_LOG_H_
+#include "log_kit.h"
+
+namespace mylib {
+inline log_kit::Logger GetLogger() {
+    static log_kit::Logger logger = log_kit::LogRegister("mylib");
+    return logger;
+}
+}  // namespace mylib
+
+#define MYLIB_LOG_INFO(fmt, ...) \
+    _LOG_INFO(::mylib::GetLogger(), fmt, ##__VA_ARGS__)
+#endif
 ```
 
 ## 🔌 远程控制（Socket）
@@ -232,17 +259,31 @@ case CmdType::kFlush:
 
 ## 📖 API 参考
 
+### Logger 类
+
+| 方法 | 说明 |
+|------|------|
+| `Logger()` | 默认构造，无效句柄（IsValid() == false） |
+| `Logger::IsValid()` | 是否为有效模块 |
+| `Logger::Id()` | 获取模块 ID（>=1） |
+| `Logger::GetName()` | 获取模块名称 |
+| `Logger::GetLevel()` | 获取当前日志级别 |
+| `Logger::SetLevel(level)` | 设置日志级别 |
+| `Logger::SetOutputFile(path)` | 重定向输出到文件 |
+| `Logger::ResetOutput()` | 恢复输出到 stderr |
+
 ### 核心 API
 
 | 函数 | 说明 |
 |------|------|
-| `LogRegister(name)` | 注册模块，返回模块 ID（>=1） |
-| `LogSetLevel(module_id, level)` | 设置模块日志级别，ID=0 表示所有模块 |
-| `LogGetLevel(module_id)` | 获取模块当前日志级别 |
-| `LogSetOutputFile(module_id, path)` | 重定向输出到文件，nullptr 恢复 stderr |
-| `LogResetOutput(module_id)` | 恢复模块输出到 stderr |
+| `LogRegister(name)` | 注册模块，返回 Logger 对象（自动去重） |
+| `LogFindModule(name)` | 按名称查找已注册模块 |
+| `LogSetLevel(module_id, level)` | 按 ID 设置级别，ID=0 表示所有模块 |
+| `LogGetLevel(module_id)` | 按 ID 获取级别 |
+| `LogSetOutputFile(module_id, path)` | 按 ID 重定向输出 |
+| `LogResetOutput(module_id)` | 按 ID 恢复输出 |
 | `LogGetModuleCount()` | 获取已注册模块数量 |
-| `LogGetModuleName(module_id)` | 获取模块名称 |
+| `LogGetModuleName(module_id)` | 按 ID 获取模块名称 |
 
 ### Socket API
 
@@ -251,16 +292,16 @@ case CmdType::kFlush:
 | `LogStartSocket(socket_path)` | 启动 Socket 控制服务器 |
 | `LogStopSocket()` | 停止 Socket 控制服务器 |
 
-### 日志宏
+### 日志宏（带 _ 前缀，避免冲突）
 
 | 宏 | 说明 |
 |----|------|
-| `LOG_TRACE(id, fmt, ...)` | TRACE 级别日志 |
-| `LOG_DEBUG(id, fmt, ...)` | DEBUG 级别日志 |
-| `LOG_INFO(id, fmt, ...)` | INFO 级别日志 |
-| `LOG_WARN(id, fmt, ...)` | WARN 级别日志 |
-| `LOG_ERROR(id, fmt, ...)` | ERROR 级别日志 |
-| `LOG_FATAL(id, fmt, ...)` | FATAL 级别日志 |
+| `_LOG_TRACE(logger, fmt, ...)` | TRACE 级别日志 |
+| `_LOG_DEBUG(logger, fmt, ...)` | DEBUG 级别日志 |
+| `_LOG_INFO(logger, fmt, ...)` | INFO 级别日志 |
+| `_LOG_WARN(logger, fmt, ...)` | WARN 级别日志 |
+| `_LOG_ERROR(logger, fmt, ...)` | ERROR 级别日志 |
+| `_LOG_FATAL(logger, fmt, ...)` | FATAL 级别日志 |
 
 ## 📤 输出格式
 

@@ -33,9 +33,11 @@ configure_file(
     @ONLY
 )
 
-# ===== 源文件 =====
+# ===== 源文件（按目录组织）=====
 set(LOG_KIT_SOURCES
-    src/log_kit.cc
+    src/core/log_kit_impl.cc
+    src/api/log_kit.cc
+    src/core/log_server.cc
 )
 
 # ===== Socket 支持 =====
@@ -115,7 +117,7 @@ if(BUILD_DEMO)
     )
 
     # log_tool：运行时日志级别配置工具
-    add_executable(log_tool src/log_tool.cc)
+    add_executable(log_tool src/core/log_tool.cc)
     if(BUILD_SHARED_LIBS)
         target_link_libraries(log_tool PRIVATE log_kit_shared)
     else()

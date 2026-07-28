@@ -58,10 +58,16 @@ static const CmdDef kCmdTable[] = {
  */
 inline CmdType ParseCmdType(const char *cmd)
 {
-    if (!cmd) return CmdType::kUnknown;
+    if (!cmd)
+    {
+        return CmdType::kUnknown;
+    }
     for (int i = 0; kCmdTable[i].name; ++i)
     {
-        if (strncmp(cmd, kCmdTable[i].name, strlen(kCmdTable[i].name)) == 0) return kCmdTable[i].type;
+        if (strncmp(cmd, kCmdTable[i].name, strlen(kCmdTable[i].name)) == 0)
+        {
+            return kCmdTable[i].type;
+        }
     }
     return CmdType::kUnknown;
 }

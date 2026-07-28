@@ -31,8 +31,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "log_cmd.h"
-#include "log_config.h"
+#include "../utils/log_cmd.h"
+#include "../utils/log_config.h"
 
 using namespace log_kit;
 
@@ -150,9 +150,15 @@ int main(int argc, char *argv[])
         int pos = 0;
         for (int i = cmd_start; i < argc; ++i)
         {
-            if (i > cmd_start) command[pos++] = ' ';
+            if (i > cmd_start)
+            {
+                command[pos++] = ' ';
+            }
             int n = snprintf(command + pos, sizeof(command) - (size_t)pos, "%s", argv[i]);
-            if (n > 0) pos += n;
+            if (n > 0)
+            {
+                pos += n;
+            }
         }
     }
     else
