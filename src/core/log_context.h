@@ -32,12 +32,33 @@ namespace log_kit
 
 struct ModuleInfo
 {
-    const char *name = nullptr;
-    std::atomic<log_kit_level_t> level{LOG_KIT_INFO};
-    std::atomic<int> fd{kDefaultFd};
-    int saved_fd{-1};
-    std::atomic<bool> active{false};
-    std::mutex mtx;  // 保护 name / saved_fd 等冷路径字段
+    ModuleInfo()
+        : name(nullptr),
+          level(LOG_KIT_INFO),
+          fd(kDefaultFd),
+          saved_fd(-1),
+          active(false)
+    {
+    }
+
+    ~ModuleInfo()
+    {
+        int fd_val = fd.load(std::memory_order_relaxed);
+        if (fd_val != kDefaultFd && fd_val >= 0)
+        {
+            ::close(fd_val);
+        }
+    }
+
+    ModuleInfo(const ModuleInfo &) = delete;
+    ModuleInfo &operator=(const ModuleInfo &) = delete;
+
+    const char *name;
+    std::atomic<log_kit_level_t> level;
+    std::atomic<int> fd;
+    int saved_fd;
+    std::atomic<bool> active;
+    std::mutex mtx;
 };
 
 // ===== 全局上下文 =====
@@ -111,34 +132,10 @@ public:
 private:
     LogContext()
     {
-        for (auto &m : modules_)
-        {
-            m.name = nullptr;
-            m.level.store(LOG_KIT_INFO, std::memory_order_relaxed);
-            m.fd.store(kDefaultFd, std::memory_order_relaxed);
-            m.saved_fd = -1;
-            m.active.store(false, std::memory_order_relaxed);
-        }
         module_count_.store(0, std::memory_order_relaxed);
     }
 
-    ~LogContext()
-    {
-        int count = module_count_.load(std::memory_order_acquire);
-        for (int i = 0; i < count; ++i)
-        {
-            auto &m = modules_[i];
-            if (!m.active.load(std::memory_order_acquire))
-            {
-                continue;
-            }
-            int fd = m.fd.load(std::memory_order_relaxed);
-            if (fd != kDefaultFd && fd >= 0)
-            {
-                ::close(fd);
-            }
-        }
-    }
+    ~LogContext() = default;
 
     LogContext(const LogContext &) = delete;
     LogContext &operator=(const LogContext &) = delete;

@@ -103,17 +103,10 @@ int RegisterModule(const char *name)
     int idx = count;
     auto &m = ctx().ModuleAt(idx);
 
-    // 先持有每个模块的锁，再写入字段
     std::lock_guard<std::mutex> mlock(m.mtx);
     m.name = name;
-    m.level.store(LOG_KIT_INFO, std::memory_order_relaxed);
-    m.fd.store(kDefaultFd, std::memory_order_relaxed);
-    m.saved_fd = -1;
-
-    // 最后发布 active，保证其他线程看到 active=true 时所有字段已就绪
     m.active.store(true, std::memory_order_release);
 
-    // 更新模块计数
     ctx().SetModuleCount(idx + 1);
 
     return idx + 1;
