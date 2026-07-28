@@ -101,8 +101,13 @@ static int SendCommand(const char *socket_path, const char *command)
 
     char buf[kCmdMaxLen];
     int buf_len = snprintf(buf, sizeof(buf), "%s\n", command);
+    if (buf_len < 0)
+    {
+        return 1;
+    }
+    size_t send_len = ((size_t)buf_len < sizeof(buf)) ? (size_t)buf_len : sizeof(buf);
 
-    ssize_t w = write(fd, buf, (size_t)buf_len);
+    ssize_t w = write(fd, buf, send_len);
     if (w <= 0)
     {
         perror("发送命令失败");

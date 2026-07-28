@@ -120,23 +120,23 @@ bool SocketServer::Start(const char *socket_path)
         return false;
     }
 
-    thread_started_ = true;
+    thread_started_.store(true, std::memory_order_release);
     return true;
 }
 
 void SocketServer::Stop()
 {
-    if (!running_.load(std::memory_order_acquire) && !thread_started_)
+    if (!running_.load(std::memory_order_acquire) && !thread_started_.load(std::memory_order_acquire))
     {
         return;
     }
 
     running_.store(false, std::memory_order_release);
 
-    if (thread_started_)
+    if (thread_started_.load(std::memory_order_acquire))
     {
         pthread_join(thread_, nullptr);
-        thread_started_ = false;
+        thread_started_.store(false, std::memory_order_release);
     }
 
     CloseListenFd();
@@ -285,7 +285,12 @@ int SocketServer::HandleCommand(const char *cmd, char *response, int response_si
 
         case CmdType::kList:
         {
-            len = snprintf(response, (size_t)response_size, "%s", kRespListHeader);
+            int ret = snprintf(response, (size_t)response_size, "%s", kRespListHeader);
+            if (ret < 0 || ret >= response_size)
+            {
+                break;
+            }
+            len = ret;
             int count = ctx.ModuleCount();
             for (int i = 0; i < count; ++i)
             {
@@ -295,8 +300,13 @@ int SocketServer::HandleCommand(const char *cmd, char *response, int response_si
                     continue;
                 }
                 std::lock_guard<std::mutex> lock(m.mtx);
-                len += snprintf(response + len, (size_t)(response_size - len), kRespListFormat, i + 1,
-                                m.name ? m.name : "?", log_kit_level_str(m.level.load(std::memory_order_relaxed)));
+                ret = snprintf(response + len, (size_t)(response_size - len), kRespListFormat, i + 1,
+                               m.name ? m.name : "?", log_kit_level_str(m.level.load(std::memory_order_relaxed)));
+                if (ret < 0 || len + ret >= response_size)
+                {
+                    break;
+                }
+                len += ret;
             }
             break;
         }

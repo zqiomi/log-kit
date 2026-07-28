@@ -30,7 +30,6 @@ log-kit/
 │   ├── log_kit.cc              # 核心实现（日志写入、SocketServer）
 │   ├── log_tool.cc             # log_tool 命令行工具
 │   ├── log_config.h            # 内部常量定义（模块上限、缓冲区大小、路径）
-│   ├── log_guard.h             # RAII 守卫（LockGuard、FdGuard）
 │   ├── log_cmd.h               # 命令协议（枚举、命令表、构建函数）
 │   └── log_internal.h          # 内部核心结构（ModuleInfo、LogContext、SocketServer）
 ├── demo/
@@ -200,62 +199,6 @@ log_kit::LogStopSocket();
 ./log_tool quit
 ```
 
-**日志级别映射：**
-- `0` = trace
-- `1` = debug
-- `2` = info
-- `3` = warn
-- `4` = error
-- `5` = fatal
-
-## 🏗️ 内部架构
-
-### 头文件分层
-
-```
-log_kit.h          # 对外 API（用户 include 此文件即可）
-  └── log_config.h     常量定义
-  └── log_cmd.h        命令协议（客户端+服务端共享）
-
-log_internal.h     # 内部核心（仅服务端使用）
-  ├── log_config.h     常量
-  ├── log_guard.h      RAII 守卫
-  └── log_cmd.h        命令协议
-```
-
-### RAII 守卫
-
-```cpp
-#include "log_guard.h"
-
-// 自动加锁解锁
-pthread_mutex_t mtx;
-{
-    log_kit::LockGuard lock(mtx);
-    // 临界区操作
-}  // 自动解锁
-
-// 自动关闭文件描述符
-log_kit::FdGuard fd(open("file.log", O_WRONLY));
-if (fd.IsValid()) {
-    write(fd.fd(), data, len);
-}  // 自动 close(fd)
-```
-
-### 协议扩展
-
-新增命令只需三步：
-
-```cpp
-// 1. 在 log_cmd.h 的 kCmdTable 添加一行
-{"flush", CmdType::kFlush},
-
-// 2. 在 CmdType 枚举添加 kFlush
-// 3. 在 log_kit.cc 的 HandleCommand switch 添加 case
-case CmdType::kFlush:
-    // 实现
-    break;
-```
 
 ## 📖 API 参考
 

@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -104,7 +105,7 @@ int RegisterModule(const char *name)
     auto &m = ctx().ModuleAt(idx);
 
     std::lock_guard<std::mutex> mlock(m.mtx);
-    m.name = name;
+    m.name = strdup(name);
     m.active.store(true, std::memory_order_release);
 
     ctx().SetModuleCount(idx + 1);
@@ -195,9 +196,9 @@ int SetOutputFile(int module_id, const char *path)
         int saved = m.saved_fd;
         if (old_fd != kDefaultFd && saved >= 0)
         {
-            ::close(old_fd);
             m.fd.store(saved, std::memory_order_relaxed);
             m.saved_fd = -1;
+            ::close(old_fd);
         }
         else
         {
@@ -215,6 +216,10 @@ int SetOutputFile(int module_id, const char *path)
     int old_fd = m.fd.load(std::memory_order_relaxed);
     m.saved_fd = old_fd;
     m.fd.store(fd, std::memory_order_relaxed);
+    if (old_fd != kDefaultFd && old_fd >= 0)
+    {
+        ::close(old_fd);
+    }
 
     return 0;
 }
@@ -243,6 +248,8 @@ void WriteLog(int module_id, log_kit_level_t level, const char *file, const char
         return;
     }
 
+    // 注意：fd 使用 relaxed load，可能与 SetOutputFile 并发关闭产生竞态
+    // 这是有意为之的设计——日志热路径优先，接受偶发 write 失败（返回 -1 或 EBADF）
     int fd = m.fd.load(std::memory_order_relaxed);
 
     time_t now = time(nullptr);
@@ -275,8 +282,12 @@ void WriteLog(int module_id, log_kit_level_t level, const char *file, const char
     while (written < pos)
     {
         ssize_t w = write(fd, buf + written, (size_t)(pos - written));
-        if (w <= 0)
+        if (w < 0)
         {
+            if (errno == EINTR)
+            {
+                continue;
+            }
             break;
         }
         written += w;

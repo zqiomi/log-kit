@@ -14,6 +14,7 @@
 #define LOG_CONTEXT_H_
 
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 
@@ -32,17 +33,15 @@ namespace log_kit
 
 struct ModuleInfo
 {
-    ModuleInfo()
-        : name(nullptr),
-          level(LOG_KIT_INFO),
-          fd(kDefaultFd),
-          saved_fd(-1),
-          active(false)
-    {
-    }
+    ModuleInfo() : name(nullptr), level(LOG_KIT_INFO), fd(kDefaultFd), saved_fd(-1), active(false) {}
 
     ~ModuleInfo()
     {
+        if (name)
+        {
+            free(const_cast<char *>(name));
+            name = nullptr;
+        }
         int fd_val = fd.load(std::memory_order_relaxed);
         if (fd_val != kDefaultFd && fd_val >= 0)
         {

@@ -65,7 +65,7 @@ private:
     int listen_fd_ = -1;
     std::atomic<bool> running_{false};
     pthread_t thread_ = 0;
-    bool thread_started_ = false;
+    std::atomic<bool> thread_started_{false};
     char socket_path_[256] = {0};
 };
 
