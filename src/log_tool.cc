@@ -1,5 +1,5 @@
 /**
- * @file main.cc
+ * @file log_tool.cc
  * @brief log_kit 运行时日志级别配置工具（通过 Unix Domain Socket 通信）
  *
  * @details 使用方法：
@@ -31,15 +31,17 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-/** @brief 默认 Socket 路径 */
-static const char* kDefaultSocketPath = "/tmp/log_kit.sock";
+#include "log_cmd.h"
+#include "log_config.h"
+
+using namespace log_kit;
 
 /**
  * @brief 打印帮助信息
  *
  * @param prog 程序名称
  */
-static void PrintUsage(const char* prog)
+static void PrintUsage(const char *prog)
 {
     printf("用法: %s [socket路径] <命令> [参数...]\n", prog);
     printf("\n");
@@ -75,9 +77,8 @@ static void PrintUsage(const char* prog)
  * @param command 要发送的命令字符串
  * @return 0 成功，1 失败
  */
-static int SendCommand(const char* socket_path, const char* command)
+static int SendCommand(const char *socket_path, const char *command)
 {
-    // 创建 socket
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
     {
@@ -85,13 +86,12 @@ static int SendCommand(const char* socket_path, const char* command)
         return 1;
     }
 
-    // 连接
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 
-    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0)
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
         perror("连接失败");
         fprintf(stderr, "\n请确认 log_kit_demo 是否正在运行，Socket 路径: %s\n", socket_path);
@@ -99,8 +99,7 @@ static int SendCommand(const char* socket_path, const char* command)
         return 1;
     }
 
-    // 发送命令（带换行符）
-    char buf[256];
+    char buf[kCmdMaxLen];
     int buf_len = snprintf(buf, sizeof(buf), "%s\n", command);
 
     ssize_t w = write(fd, buf, (size_t)buf_len);
@@ -111,8 +110,7 @@ static int SendCommand(const char* socket_path, const char* command)
         return 1;
     }
 
-    // 读取响应
-    char resp[1024];
+    char resp[kRespMaxLen];
     ssize_t n = read(fd, resp, sizeof(resp) - 1);
     if (n > 0)
     {
@@ -131,20 +129,18 @@ static int SendCommand(const char* socket_path, const char* command)
  * @param argv 参数列表
  * @return 0 成功，1 失败
  */
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-    const char* socket_path = kDefaultSocketPath;
-    char command[256] = {0};
+    const char *socket_path = kDefaultSocketPath;
+    char command[kCmdMaxLen] = {0};
     int cmd_start = 1;
 
-    // 无参数时默认 list
     if (argc < 2)
     {
-        strncpy(command, "list", sizeof(command) - 1);
+        BuildListCmd(command, sizeof(command));
     }
     else if (argc >= 3)
     {
-        // 检查第一个参数是否为路径
         if (argv[1][0] == '/')
         {
             socket_path = argv[1];
@@ -161,7 +157,6 @@ int main(int argc, char* argv[])
     }
     else
     {
-        // 单个参数
         if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)
         {
             PrintUsage(argv[0]);
@@ -171,7 +166,7 @@ int main(int argc, char* argv[])
         if (argv[1][0] == '/')
         {
             socket_path = argv[1];
-            strncpy(command, "list", sizeof(command) - 1);
+            BuildListCmd(command, sizeof(command));
         }
         else
         {

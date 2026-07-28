@@ -25,6 +25,7 @@ include(GNUInstallDirs)
 
 # 头文件路径
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # ===== 版本头文件 =====
@@ -36,7 +37,7 @@ configure_file(
 
 # ===== 源文件 =====
 set(LOG_KIT_SOURCES
-    src/api/log_kit.cc
+    src/log_kit.cc
 )
 
 # ===== Socket 支持 =====
@@ -104,7 +105,7 @@ if(BUILD_DEMO)
     )
 
     # log_tool：运行时日志级别配置工具
-    add_executable(log_tool log_tool/main.cc)
+    add_executable(log_tool src/log_tool.cc)
     install(TARGETS log_tool
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
