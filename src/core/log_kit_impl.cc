@@ -9,6 +9,7 @@
 #include "log_kit_impl.h"
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -28,6 +29,33 @@ namespace log_kit
 static LogContext &ctx()
 {
     return LogContext::getInstance();
+}
+
+// ===== 时间戳缓存 =====
+//
+// thread_local 秒级缓存：同一秒内的多条日志复用同一格式化串，
+// 避免每条日志调用 localtime_r + strftime（strftime 开销最大）。
+// thread_local 无锁、无数据竞争，每线程内首条日志触发一次格式化。
+// 手写 snprintf 比 strftime 快 5-10x。
+//
+// 精度：秒级（与原 strftime "%Y-%m-%d %H:%M:%S" 一致，无毫秒）。
+
+static const char *GetCachedTime(time_t now)
+{
+    static thread_local time_t t_cached_sec = 0;
+    static thread_local char t_cached_time[24] = {0};  // "YYYY-MM-DD HH:MM:SS\0" 需 20，留余量
+
+    if (now == t_cached_sec)
+    {
+        return t_cached_time;
+    }
+    struct tm tm_buf;
+    localtime_r(&now, &tm_buf);
+    snprintf(t_cached_time, sizeof(t_cached_time), "%04d-%02d-%02d %02d:%02d:%02d",
+             tm_buf.tm_year + 1900, tm_buf.tm_mon + 1, tm_buf.tm_mday,
+             tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec);
+    t_cached_sec = now;
+    return t_cached_time;
 }
 
 // ===== 级别字符串 =====
@@ -106,6 +134,12 @@ int RegisterModule(const char *name)
 
     std::lock_guard<std::mutex> mlock(m.mtx);
     m.name = strdup(name);
+    if (!m.name)
+    {
+        // strdup 失败：保持模块未激活，下次注册会重用此 idx
+        fprintf(stderr, "[log_kit] ERROR: 内存不足，模块注册失败\n");
+        return 0;
+    }
     m.active.store(true, std::memory_order_release);
 
     ctx().SetModuleCount(idx + 1);
@@ -178,6 +212,17 @@ const char *GetModuleName(int module_id)
 }
 
 // ===== 输出重定向 =====
+//
+// fd 控制语义（覆盖 stderr / 文件 / 网络 socket 三类 fd）：
+// - kDefaultFd (STDERR_FILENO=2) 是哨兵：表示"指向 stderr，本模块不持有独占资源"，
+//   切换时绝不 close(2)，否则会破坏进程 stderr。
+// - 文件 fd：open() 返回，本模块独占持有，切换/恢复时 close。
+// - 网络 socket fd：用户可通过 SetOutputFile("/dev/fd/N") 把日志重定向到既有的
+//   socket fd（N 为已打开的 fd 号）。本模块按"独占持有"语义处理——一旦传入，
+//   切换时会 close 它。若调用方希望保留 socket 所有权，应自行 dup 一份再传入。
+//
+// 并发安全：所有 fd 读写均在 fd_lock 下进行（热路径 rdlock，本函数 wrlock），
+// close 在 wrlock 内执行，确保无热路径仍持有旧 fd 值，彻底消除串台竞态。
 
 int SetOutputFile(int module_id, const char *path)
 {
@@ -188,39 +233,36 @@ int SetOutputFile(int module_id, const char *path)
     }
 
     auto &m = ctx().ModuleAt(idx);
-    std::lock_guard<std::mutex> lock(m.mtx);
 
+    // 恢复到 stderr
     if (!path)
     {
-        int old_fd = m.fd.load(std::memory_order_relaxed);
-        int saved = m.saved_fd;
-        if (old_fd != kDefaultFd && saved >= 0)
+        pthread_rwlock_wrlock(&m.fd_lock);
+        int old_fd = m.fd;
+        m.fd = kDefaultFd;
+        if (old_fd != kDefaultFd && old_fd >= 0)
         {
-            m.fd.store(saved, std::memory_order_relaxed);
-            m.saved_fd = -1;
-            ::close(old_fd);
+            ::close(old_fd);  // 锁内 close，确保无并发 write
         }
-        else
-        {
-            m.fd.store(kDefaultFd, std::memory_order_relaxed);
-        }
+        pthread_rwlock_unlock(&m.fd_lock);
         return 0;
     }
 
-    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (fd < 0)
+    // 打开新 fd（文件路径，或 /dev/fd/N 形式的既有 fd 重定向）
+    int new_fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (new_fd < 0)
     {
         return -1;
     }
 
-    int old_fd = m.fd.load(std::memory_order_relaxed);
-    m.saved_fd = old_fd;
-    m.fd.store(fd, std::memory_order_relaxed);
+    pthread_rwlock_wrlock(&m.fd_lock);
+    int old_fd = m.fd;
+    m.fd = new_fd;
     if (old_fd != kDefaultFd && old_fd >= 0)
     {
-        ::close(old_fd);
+        ::close(old_fd);  // 锁内 close 旧 fd
     }
-
+    pthread_rwlock_unlock(&m.fd_lock);
     return 0;
 }
 
@@ -230,11 +272,22 @@ void ResetOutput(int module_id)
 }
 
 // ===== 日志写入（热路径）=====
+//
+// 优化点（方案 B，保持同步语义）：
+// 1. 时间戳用 thread_local 秒级缓存，避免每条日志 localtime_r + strftime
+// 2. header + body 合并为单次 vsnprintf（原为 snprintf + vsnprintf 两次）
+// 3. fd 用 rdlock 保护，杜绝与 SetOutputFile 的 close 竞态（修复串台 bug）
+// 4. write 循环处理 EINTR（信号中断，文件/网络 fd 均可能），
+//    其他错误（EBADF/EPIPE/ECONNRESET/ENOSPC）静默丢弃——日志不应阻塞业务
+//
+// fd 类型覆盖：
+// - stderr (kDefaultFd=2)：write 永不失败，无需特殊处理
+// - 普通文件：write 极少失败（除非磁盘满 ENOSPC）
+// - 网络 socket：可能 EPIPE/ECONNRESET，本实现静默丢弃
 
 void WriteLog(int module_id, log_kit_level_t level, const char *file, const char *func, int line, const char *fmt,
               va_list ap)
 {
-    // 热路径：无锁，直接 atomic load
     int idx = ctx().ModuleIdToIndex(module_id);
     if (idx < 0)
     {
@@ -242,42 +295,41 @@ void WriteLog(int module_id, log_kit_level_t level, const char *file, const char
     }
 
     auto &m = ctx().ModuleAt(idx);
-    log_kit_level_t current_level = m.level.load(std::memory_order_relaxed);
-    if (current_level > level)
+    if (m.level.load(std::memory_order_relaxed) > level)
     {
         return;
     }
 
-    // 注意：fd 使用 relaxed load，可能与 SetOutputFile 并发关闭产生竞态
-    // 这是有意为之的设计——日志热路径优先，接受偶发 write 失败（返回 -1 或 EBADF）
-    int fd = m.fd.load(std::memory_order_relaxed);
-
+    // 时间戳：thread_local 秒级缓存
     time_t now = time(nullptr);
-    struct tm tm_buf;
-    localtime_r(&now, &tm_buf);
-    char time_buf[32];
-    strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
+    const char *tstr = GetCachedTime(now);
 
     const char *filename = strrchr(file, '/');
     filename = filename ? filename + 1 : file;
 
+    // 单次格式化 header + body
     char buf[kLogBufSize];
-    int pos = 0;
-
-    pos += snprintf(buf + pos, (size_t)(kLogBufSize - pos), "[%s] [%-5s] [%s:%s:%d] ", time_buf, LevelStr(level),
-                    filename, func, line);
-
-    pos += vsnprintf(buf + pos, (size_t)(kLogBufSize - pos), fmt, ap);
-
-    if (pos < kLogBufSize - 1)
+    int pos = snprintf(buf, sizeof(buf), "[%s] [%-5s] [%s:%s:%d] ",
+                       tstr, LevelStr(level), filename, func, line);
+    if (pos < 0 || pos >= (int)sizeof(buf))
     {
-        buf[pos++] = '\n';
-    }
-    else
-    {
-        buf[kLogBufSize - 2] = '\n';
+        return;
     }
 
+    pos += vsnprintf(buf + pos, sizeof(buf) - (size_t)pos, fmt, ap);
+    if (pos < 0)
+    {
+        return;
+    }
+    if (pos >= (int)sizeof(buf))
+    {
+        pos = (int)sizeof(buf) - 1;  // 截断
+    }
+    buf[pos++] = '\n';
+
+    // 读锁保护 fd：与 SetOutputFile 的 wrlock 互斥，确保 write 期间 fd 不会被 close
+    pthread_rwlock_rdlock(&m.fd_lock);
+    int fd = m.fd;
     ssize_t written = 0;
     while (written < pos)
     {
@@ -286,12 +338,13 @@ void WriteLog(int module_id, log_kit_level_t level, const char *file, const char
         {
             if (errno == EINTR)
             {
-                continue;
+                continue;  // 信号中断，重试（文件/网络 fd 均可能）
             }
-            break;
+            break;  // EBADF/EPIPE/ECONNRESET/ENOSPC：静默丢弃
         }
         written += w;
     }
+    pthread_rwlock_unlock(&m.fd_lock);
 }
 
 }  // namespace log_kit

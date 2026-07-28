@@ -239,7 +239,9 @@ int SocketServer::HandleCommand(const char *cmd, char *response, int response_si
         {
             int module_id = 0;
             char level_str[32] = {0};
-            if (sscanf(cmd + 6, "%d %31s", &module_id, level_str) == 2)
+            // 跳过 "level " 前缀（用 strlen 计算，避免硬编码魔法数 6）
+            const char *args = cmd + strlen("level ");
+            if (sscanf(args, "%d %31s", &module_id, level_str) == 2)
             {
                 log_kit_level_t level;
                 if (ParseLevelStr(level_str, &level))

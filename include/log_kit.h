@@ -164,9 +164,8 @@ void log_kit_stop_socket(void);
 
 // ===== 日志宏 =====
 // 宏带 _ 前缀，避免与业务代码中的 LOG_* 宏冲突
-// 接受 int 类型的模块 ID，C/C++ 通用
+// 接受 int 类型的模块 ID，C/C++ 通用（__func__ 在 C99/C++11 均为标准）
 
-#ifdef __cplusplus
 #define _LOG_TRACE(module_id, fmt, ...) \
     log_kit_write(module_id, LOG_KIT_TRACE, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 #define _LOG_DEBUG(module_id, fmt, ...) \
@@ -179,19 +178,5 @@ void log_kit_stop_socket(void);
     log_kit_write(module_id, LOG_KIT_ERROR, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
 #define _LOG_FATAL(module_id, fmt, ...) \
     log_kit_write(module_id, LOG_KIT_FATAL, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
-#else
-#define _LOG_TRACE(module_id, fmt, ...) \
-    log_kit_write(module_id, LOG_KIT_TRACE, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
-#define _LOG_DEBUG(module_id, fmt, ...) \
-    log_kit_write(module_id, LOG_KIT_DEBUG, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
-#define _LOG_INFO(module_id, fmt, ...) \
-    log_kit_write(module_id, LOG_KIT_INFO, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
-#define _LOG_WARN(module_id, fmt, ...) \
-    log_kit_write(module_id, LOG_KIT_WARN, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
-#define _LOG_ERROR(module_id, fmt, ...) \
-    log_kit_write(module_id, LOG_KIT_ERROR, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
-#define _LOG_FATAL(module_id, fmt, ...) \
-    log_kit_write(module_id, LOG_KIT_FATAL, __FILE__, __func__, __LINE__, fmt, ##__VA_ARGS__)
-#endif
 
 #endif  // LOG_KIT_H_

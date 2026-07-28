@@ -13,6 +13,8 @@
 #ifndef LOG_CONTEXT_H_
 #define LOG_CONTEXT_H_
 
+#include <pthread.h>
+
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -27,13 +29,21 @@ namespace log_kit
 // ===== 模块信息 =====
 //
 // 并发设计说明：
-// - level / fd / active 使用 atomic，供热路径（log_kit_write）无锁读取
-// - name / saved_fd 通过模块级 mutex 保护
-// - saved_fd 仅在持有 mutex 时访问，故使用普通 int
+// - level / active 使用 atomic，供热路径（log_kit_write）无锁读取
+// - name 通过模块级 mutex（mtx）保护，仅在注册/查询时短暂持有
+// - fd 由 fd_lock（读写锁）保护：
+//     * 热路径 write：rdlock，多线程并发写不阻塞
+//     * 冷路径 SetOutputFile：wrlock，切换 fd 时独占，close 在锁内执行
+//   这样彻底消除原 atomic fd 设计中"读到旧 fd 值 → write 到已被 close/复用的 fd"
+//   的串台竞态。stderr（kDefaultFd）作为哨兵值，永远不由本模块 close。
+//   支持任意可 write 的 fd：stderr、普通文件、socket（含 /dev/fd/N 重定向）。
 
 struct ModuleInfo
 {
-    ModuleInfo() : name(nullptr), level(LOG_KIT_INFO), fd(kDefaultFd), saved_fd(-1), active(false) {}
+    ModuleInfo() : name(nullptr), level(LOG_KIT_INFO), fd(kDefaultFd), active(false)
+    {
+        pthread_rwlock_init(&fd_lock, nullptr);
+    }
 
     ~ModuleInfo()
     {
@@ -42,11 +52,15 @@ struct ModuleInfo
             free(const_cast<char *>(name));
             name = nullptr;
         }
-        int fd_val = fd.load(std::memory_order_relaxed);
-        if (fd_val != kDefaultFd && fd_val >= 0)
+        // 在写锁内关闭独占 fd，确保无热路径仍持有旧 fd
+        pthread_rwlock_wrlock(&fd_lock);
+        if (fd != kDefaultFd && fd >= 0)
         {
-            ::close(fd_val);
+            ::close(fd);
         }
+        fd = -1;
+        pthread_rwlock_unlock(&fd_lock);
+        pthread_rwlock_destroy(&fd_lock);
     }
 
     ModuleInfo(const ModuleInfo &) = delete;
@@ -54,10 +68,10 @@ struct ModuleInfo
 
     const char *name;
     std::atomic<log_kit_level_t> level;
-    std::atomic<int> fd;
-    int saved_fd;
+    int fd;                       // 由 fd_lock 保护
     std::atomic<bool> active;
-    std::mutex mtx;
+    std::mutex mtx;               // 保护 name
+    pthread_rwlock_t fd_lock;     // 保护 fd 切换，避免热路径 write 串台
 };
 
 // ===== 全局上下文 =====

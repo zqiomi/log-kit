@@ -53,7 +53,10 @@ static const CmdDef kCmdTable[] = {
 /**
  * @brief 解析命令字符串到 CmdType
  *
- * @param cmd 命令字符串（不含空格后的参数）
+ * 精确匹配命令字：cmd 前缀必须等于 name，且下一位是空格或字符串结尾。
+ * 避免原 strncmp 前缀匹配导致 "levelx" 被误判为 "level"。
+ *
+ * @param cmd 命令字符串（可带参数，如 "level 1 trace"）
  * @return 命令类型
  */
 inline CmdType ParseCmdType(const char *cmd)
@@ -64,7 +67,9 @@ inline CmdType ParseCmdType(const char *cmd)
     }
     for (int i = 0; kCmdTable[i].name; ++i)
     {
-        if (strncmp(cmd, kCmdTable[i].name, strlen(kCmdTable[i].name)) == 0)
+        size_t nlen = strlen(kCmdTable[i].name);
+        if (strncmp(cmd, kCmdTable[i].name, nlen) == 0 &&
+            (cmd[nlen] == ' ' || cmd[nlen] == '\0'))
         {
             return kCmdTable[i].type;
         }
